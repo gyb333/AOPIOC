@@ -1,0 +1,165 @@
+﻿<#@ template debug="true" hostspecific="true" language="C#" #>
+<#@ assembly name="System.Data" #>
+<#@ assembly name="System.Xml" #>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Data.DataSetExtensions" #>
+<#@ assembly name="System.Linq" #>
+<#@ import namespace="System" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Data.OleDb" #> 
+<#@ output extension=".cs" #> 
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+<#
+    var data= GetSourcesData();
+    var dic = SplitObjects(data.Tables["KDSEntities"]);
+       foreach(var item in dic){
+            WriteEntity("KDSEntities",item);  
+     }
+      
+    dic = SplitObjects(data.Tables["DMSEntities"]); 
+      foreach(var item in dic){
+            WriteTableDeclare("DMSEntities",item);  
+     }
+     foreach(var item in dic){
+            WriteEntity("DMSEntities",item);  
+     }    
+#> 
+<#+ 
+    public DataSet GetSourcesData( )
+    {   
+        DataSet ds= new DataSet();
+       
+
+        return ds;
+    }
+
+    public Dictionary<string, List<DataRow>>  SplitObjects(DataTable d){
+		Dictionary<string, List<DataRow>> dic = new Dictionary<string, List<DataRow>>(StringComparer.OrdinalIgnoreCase);
+		if(d!=null){
+			var entities = d.AsEnumerable().Where(fn => fn["对象名"] != DBNull.Value && !string.IsNullOrWhiteSpace(fn["对象名"].ToString()))
+                .Select(fn => fn.Field<string>("对象名").Trim()).Distinct().ToList();
+        
+        foreach (var str in entities)
+        { 
+            var  rows = d.AsEnumerable().Where(fn => string.Equals(fn.Field<string>("对象名").Trim() , str,StringComparison.OrdinalIgnoreCase)).ToList();
+            dic.Add(str, rows);
+        }
+		}
+        return dic;
+    }
+
+ public string GetString(object value){
+        if(value==null){
+            return string.Empty;
+        }
+        return value.ToString().Replace("\r\n","").Replace("\n",""); 
+}
+
+    public string GetDefaultValue(string sqlType,string require){
+        string type=GetDataType(sqlType,require);
+        if(type=="string") return "=\"\";";
+        else return string.Empty;
+}
+
+    public string GetDataType(string sqlType,string require){
+        string type="string";
+        require=require.ToLower().Trim();
+        sqlType=sqlType.ToLower();
+       if(sqlType.Contains("char"))
+            type="string";
+          if(sqlType.Contains("numeric")||sqlType.Contains("decimal")||sqlType.Contains("money")) 
+            type="decimal";
+        if(sqlType.Contains("datetime"))
+            type="DateTime"; 
+           if(sqlType.Contains("bit"))
+            type="bool";  
+           if(sqlType.Contains("int"))
+             type="int"; 
+         if(sqlType.Contains("numeric(10,0)")||sqlType.Contains("numeric(10)"))
+            type="long";
+        if(require.Contains("n")){
+            if(type!="string"){
+                type =$"{type} ?";
+            }
+        }
+        return type;
+}
+    public void WriteTableDeclare(string space ,KeyValuePair<string,List<DataRow>>  kv){
+        if(kv.Value.Count==0) return;
+        var dr =  kv.Value.First();
+#> 
+/*
+
+--<#=dr["对象名称"] #>
+ CREATE TABLE  <#=dr["对象名"] #>
+(
+        LogId bigint AUTO_INCREMENT NOT NULL PRIMARY KEY ,
+        LogRequestId bigint not null,
+        LogInsertDate datetime not null,
+        LogTransferRowState nvarchar(50)  not null, 
+        LogTransferMessage longtext , 
+<#+
+        foreach(var item in kv.Value){ 
+            string required=item["必填"].ToString().ToLower()=="y"?" NOT NULL":"";
+ #>
+         <#= item["字段名"]#> <#=  item["数据类型"]#> <#=required #>,        
+<#+        }#>    
+);
+*/
+<#+    }
+#>
+<#+
+    public void WriteEntity(string space ,KeyValuePair<string,List<DataRow>>  kv){
+       if(kv.Value.Count==0) return;
+        var dr =  kv.Value.First();
+#>
+namespace Wilmar.DataSyncPlatform.<#= space #> 
+{
+    /// <summary>
+    /// <#=dr["对象名称"] #>
+    /// </summary>
+    public partial class <#=dr["对象名"] #>:EntityBase
+    {       
+<#+
+        foreach(var item in kv.Value){
+        if(space=="KDSEntities"&& (
+            string.Equals( item["字段名"].ToString() ,"BillNo", StringComparison.OrdinalIgnoreCase)
+            ||string.Equals( item["字段名"].ToString() ,"BillID", StringComparison.OrdinalIgnoreCase) 
+            ||string.Equals( item["字段名"].ToString() ,"Id", StringComparison.OrdinalIgnoreCase) 
+                
+            )) 
+            {
+       
+                continue;
+            }
+             if(space=="DMSEntities"&& ( 
+             string.Equals( item["字段名"].ToString() ,"Id", StringComparison.OrdinalIgnoreCase) 
+             ||string.Equals( item["字段名"].ToString() ,"reference_id", StringComparison.OrdinalIgnoreCase) 
+                
+            )) 
+            {
+       
+                continue;
+            }
+ #>
+        /// <summary>
+        ///  <#=item["字段名称"] #>
+        ///<#= GetString(item["字段注释"] )#> 
+        /// </summary>
+        public <#= GetDataType(item["数据类型"].ToString(),item["必填"].ToString())#> <#= item["字段名"] #> { get; set; } <#=GetDefaultValue(item["数据类型"].ToString(),item["必填"].ToString())#>
+
+<#+        }#>       
+    }
+} 
+<#+
+    }
+   
+  #>
